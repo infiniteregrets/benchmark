@@ -43,9 +43,20 @@ public class S2Config {
     public int maxBatchMeteredBytes = 1024 * 1024;
     public long maxInflightBytesPerStream = 5 * 1024 * 1024;
 
+    /** Fail and recycle an append session when a batch is unacked for this long. 0 disables. */
+    public long appendAckTimeoutMs = 30_000;
+
     // HTTP/2 connection pools. Append and read traffic never share a connection.
-    public int http2AppendConnections = 2;
-    public int http2ReadConnections = 2;
+    // 0 means auto: max(4, available processors), capped at 16.
+    public int http2AppendConnections = 0;
+    public int http2ReadConnections = 0;
 
     public boolean deleteStreamsOnClose = true;
+
+    public int resolveConnections(int configured) {
+        if (configured > 0) {
+            return configured;
+        }
+        return Math.min(16, Math.max(4, Runtime.getRuntime().availableProcessors()));
+    }
 }

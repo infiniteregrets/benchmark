@@ -66,12 +66,6 @@ public class S2BenchmarkProducer implements BenchmarkProducer {
         this.config = config;
         this.sessions = new AppendSession[partitions.size()];
         this.batches = new Batch[partitions.size()];
-        for (int i = 0; i < partitions.size(); i++) {
-            sessions[i] =
-                    new AppendSession(
-                            transport, endpoints, partitions.get(i), config.maxInflightBytesPerStream);
-            batches[i] = new Batch();
-        }
         this.flusher =
                 Executors.newSingleThreadScheduledExecutor(
                         r -> {
@@ -79,6 +73,17 @@ public class S2BenchmarkProducer implements BenchmarkProducer {
                             thread.setDaemon(true);
                             return thread;
                         });
+        for (int i = 0; i < partitions.size(); i++) {
+            sessions[i] =
+                    new AppendSession(
+                            transport,
+                            endpoints,
+                            partitions.get(i),
+                            config.maxInflightBytesPerStream,
+                            config.appendAckTimeoutMs,
+                            flusher);
+            batches[i] = new Batch();
+        }
     }
 
     @Override

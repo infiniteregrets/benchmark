@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
@@ -54,6 +56,9 @@ public class AppendSession implements AutoCloseable {
     private final Endpoints endpoints;
     private final String stream;
     private final long maxInflightBytes;
+    private final long ackTimeoutMs;
+    private final ScheduledExecutorService watchdog;
+    private ScheduledFuture<?> watchdogTask;
 
     private final Object lock = new Object();
     private Stream h2Stream;
@@ -69,11 +74,13 @@ public class AppendSession implements AutoCloseable {
         final int recordCount;
         final long meteredBytes;
         final List<CompletableFuture<Void>> futures;
+        final long submittedAtNanos;
 
         Inflight(int recordCount, long meteredBytes, List<CompletableFuture<Void>> futures) {
             this.recordCount = recordCount;
             this.meteredBytes = meteredBytes;
             this.futures = futures;
+            this.submittedAtNanos = System.nanoTime();
         }
     }
 
@@ -86,11 +93,32 @@ public class AppendSession implements AutoCloseable {
     }
 
     public AppendSession(
-            H2Transport transport, Endpoints endpoints, String stream, long maxInflightBytes) {
+            H2Transport transport,
+            Endpoints endpoints,
+            String stream,
+            long maxInflightBytes,
+            long ackTimeoutMs,
+            ScheduledExecutorService watchdog) {
         this.transport = transport;
         this.endpoints = endpoints;
         this.stream = stream;
         this.maxInflightBytes = maxInflightBytes;
+        this.ackTimeoutMs = ackTimeoutMs;
+        this.watchdog = watchdog;
+    }
+
+    // Fail the session if the oldest unacked batch has waited longer than the ack timeout, so a
+    // stalled-but-open stream recycles instead of hanging its futures.
+    private void checkAckDeadline() {
+        synchronized (lock) {
+            Inflight head = inflight.peek();
+            if (head != null
+                    && !dead
+                    && System.nanoTime() - head.submittedAtNanos
+                            > TimeUnit.MILLISECONDS.toNanos(ackTimeoutMs)) {
+                onSessionFailureLocked(new IOException("no AppendAck within " + ackTimeoutMs + " ms"));
+            }
+        }
     }
 
     // Submit one batch. Blocks the caller while the in-flight window is full. The per-record
@@ -148,6 +176,12 @@ public class AppendSession implements AutoCloseable {
         this.h2Stream = promise.get(30, TimeUnit.SECONDS);
         this.currentListener = listener;
         this.dead = false;
+        if (watchdogTask == null && ackTimeoutMs > 0) {
+            long period = Math.max(ackTimeoutMs / 4, 250);
+            watchdogTask =
+                    watchdog.scheduleWithFixedDelay(
+                            this::checkAckDeadline, period, period, TimeUnit.MILLISECONDS);
+        }
     }
 
     private void pumpWritesLocked() {
@@ -264,6 +298,10 @@ public class AppendSession implements AutoCloseable {
         synchronized (lock) {
             closed = true;
             target = h2Stream;
+            if (watchdogTask != null) {
+                watchdogTask.cancel(false);
+                watchdogTask = null;
+            }
         }
         if (target != null) {
             target.data(new DataFrame(target.getId(), ByteBuffer.allocate(0), true), Callback.NOOP);

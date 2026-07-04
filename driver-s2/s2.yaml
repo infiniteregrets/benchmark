@@ -41,9 +41,13 @@ maxBatchRecords: 1000
 maxBatchMeteredBytes: 1048576
 maxInflightBytesPerStream: 5242880
 
+# Fail and recycle an append session when a batch is unacked for this long.
+appendAckTimeoutMs: 30000
+
 # HTTP/2 connection pools per worker. Append and read traffic never share a
-# connection so that paused consumers cannot stall producer acks.
-http2AppendConnections: 2
-http2ReadConnections: 2
+# connection so that paused consumers cannot stall producer acks. 0 sizes the
+# pool automatically from the core count.
+http2AppendConnections: 0
+http2ReadConnections: 0
 
 deleteStreamsOnClose: true

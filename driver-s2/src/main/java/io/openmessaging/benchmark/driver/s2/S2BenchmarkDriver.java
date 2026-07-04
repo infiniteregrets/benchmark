@@ -75,7 +75,10 @@ public class S2BenchmarkDriver implements BenchmarkDriver {
         this.endpoints = new Endpoints(config.basinEndpoint, config.basin, token);
         try {
             this.transport =
-                    new H2Transport(endpoints, config.http2AppendConnections, config.http2ReadConnections);
+                    new H2Transport(
+                            endpoints,
+                            config.resolveConnections(config.http2AppendConnections),
+                            config.resolveConnections(config.http2ReadConnections));
         } catch (Exception e) {
             throw new IOException("failed to start HTTP/2 transport", e);
         }
