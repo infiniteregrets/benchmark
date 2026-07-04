@@ -186,6 +186,8 @@ public class AppendSession implements AutoCloseable {
         }
     }
 
+    // Coalesce all queued frames into one HTTP/2 data call: frames are self-delimiting, and
+    // writing them one per callback round-trip caps small-batch throughput per session.
     private void pumpWritesLocked() {
         if (writing || dead || h2Stream == null) {
             return;
@@ -194,10 +196,25 @@ public class AppendSession implements AutoCloseable {
         if (next == null) {
             return;
         }
+        ByteBuffer payload = next.frame;
+        if (!writeQueue.isEmpty()) {
+            int total = payload.remaining();
+            for (PendingWrite queued : writeQueue) {
+                total += queued.frame.remaining();
+            }
+            ByteBuffer combined = ByteBuffer.allocate(total);
+            combined.put(payload);
+            PendingWrite queued;
+            while ((queued = writeQueue.poll()) != null) {
+                combined.put(queued.frame);
+            }
+            combined.flip();
+            payload = combined;
+        }
         writing = true;
         Stream target = h2Stream;
         target.data(
-                new DataFrame(target.getId(), next.frame, false),
+                new DataFrame(target.getId(), payload, false),
                 new Callback() {
                     @Override
                     public void succeeded() {
