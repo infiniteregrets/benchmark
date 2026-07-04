@@ -23,9 +23,10 @@ import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 
 /**
- * Owns the Jetty HTTP/2 client and two independent connection pools. Append sessions and read
- * sessions never share a connection: a paused consumer withholds flow-control window, and sharing
- * would stall append acks behind it.
+ * Owns the Jetty HTTP/2 client. Append sessions each get a dedicated connection: sharing a
+ * connection between append streams stalls some of them behind connection-level send flow control
+ * (measured as multi-second p99 publish latency). Read sessions share a pool, since the client
+ * controls the receive windows and sizes them generously.
  */
 public class H2Transport implements AutoCloseable {
 
@@ -33,11 +34,9 @@ public class H2Transport implements AutoCloseable {
     private final HTTP2Client http2Client;
     private final SslContextFactory.Client sslContextFactory;
 
-    private final ConnectionPool appendPool;
     private final ConnectionPool readPool;
 
-    public H2Transport(Endpoints endpoints, int appendConnections, int readConnections)
-            throws Exception {
+    public H2Transport(Endpoints endpoints, int readConnections) throws Exception {
         this.endpoints = endpoints;
         this.http2Client = new HTTP2Client();
         http2Client.setInitialStreamRecvWindow(8 * 1024 * 1024);
@@ -46,12 +45,12 @@ public class H2Transport implements AutoCloseable {
         this.sslContextFactory = new SslContextFactory.Client();
         http2Client.addBean(sslContextFactory);
         http2Client.start();
-        this.appendPool = new ConnectionPool(appendConnections);
         this.readPool = new ConnectionPool(readConnections);
     }
 
-    public CompletableFuture<Session> appendConnection() {
-        return appendPool.next();
+    // A fresh connection owned by the caller, who must close it via Session.close.
+    public CompletableFuture<Session> dedicatedConnection() {
+        return connect();
     }
 
     public CompletableFuture<Session> readConnection() {

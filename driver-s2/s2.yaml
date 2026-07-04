@@ -44,10 +44,9 @@ maxInflightBytesPerStream: 5242880
 # Fail and recycle an append session when a batch is unacked for this long.
 appendAckTimeoutMs: 30000
 
-# HTTP/2 connection pools per worker. Append and read traffic never share a
-# connection so that paused consumers cannot stall producer acks. 0 sizes the
-# pool automatically from the core count.
-http2AppendConnections: 0
+# Read sessions share an HTTP/2 connection pool, sized from the core count
+# when 0. Append sessions always use a dedicated connection per stream, since
+# sharing stalls append streams behind connection-level send flow control.
 http2ReadConnections: 0
 
 deleteStreamsOnClose: true

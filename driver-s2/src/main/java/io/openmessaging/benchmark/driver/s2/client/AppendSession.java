@@ -61,6 +61,7 @@ public class AppendSession implements AutoCloseable {
     private ScheduledFuture<?> watchdogTask;
 
     private final Object lock = new Object();
+    private Session h2Connection;
     private Stream h2Stream;
     private boolean dead;
     private boolean closed;
@@ -155,7 +156,7 @@ public class AppendSession implements AutoCloseable {
     }
 
     private void open() throws Exception {
-        Session session = transport.appendConnection().get(30, TimeUnit.SECONDS);
+        Session session = transport.dedicatedConnection().get(30, TimeUnit.SECONDS);
         HttpFields.Mutable fields =
                 HttpFields.build()
                         .put(HttpHeader.AUTHORIZATION, endpoints.authorization)
@@ -174,6 +175,7 @@ public class AppendSession implements AutoCloseable {
         Listener listener = new Listener();
         session.newStream(new HeadersFrame(request, null, false), promise, listener);
         this.h2Stream = promise.get(30, TimeUnit.SECONDS);
+        this.h2Connection = session;
         this.currentListener = listener;
         this.dead = false;
         if (watchdogTask == null && ackTimeoutMs > 0) {
@@ -250,6 +252,9 @@ public class AppendSession implements AutoCloseable {
                         acked.recordCount);
             }
             inflightBytes -= acked.meteredBytes;
+            if (closed && inflight.isEmpty()) {
+                closeConnectionLocked();
+            }
             lock.notifyAll();
         }
         for (CompletableFuture<Void> future : acked.futures) {
@@ -280,9 +285,18 @@ public class AppendSession implements AutoCloseable {
         writeQueue.clear();
         writing = false;
         h2Stream = null;
+        closeConnectionLocked();
         lock.notifyAll();
         for (Inflight batch : failed) {
             fail(batch.futures, cause);
+        }
+    }
+
+    private void closeConnectionLocked() {
+        Session conn = h2Connection;
+        h2Connection = null;
+        if (conn != null && !conn.isClosed()) {
+            conn.close(0, "done", Callback.NOOP);
         }
     }
 
@@ -305,6 +319,11 @@ public class AppendSession implements AutoCloseable {
         }
         if (target != null) {
             target.data(new DataFrame(target.getId(), ByteBuffer.allocate(0), true), Callback.NOOP);
+        }
+        synchronized (lock) {
+            if (inflight.isEmpty()) {
+                closeConnectionLocked();
+            }
         }
     }
 

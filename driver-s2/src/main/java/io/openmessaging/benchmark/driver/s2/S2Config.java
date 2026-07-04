@@ -46,9 +46,8 @@ public class S2Config {
     /** Fail and recycle an append session when a batch is unacked for this long. 0 disables. */
     public long appendAckTimeoutMs = 30_000;
 
-    // HTTP/2 connection pools. Append and read traffic never share a connection.
-    // 0 means auto: max(4, available processors), capped at 16.
-    public int http2AppendConnections = 0;
+    // Read sessions share a connection pool. 0 means auto: max(4, available processors),
+    // capped at 16. Append sessions always use a dedicated connection per stream.
     public int http2ReadConnections = 0;
 
     public boolean deleteStreamsOnClose = true;
