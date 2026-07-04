@@ -21,3 +21,4 @@ core/*.json
 # IntelliJ artifacts
 .idea/
 *.iml
+dependency-reduced-pom.xml

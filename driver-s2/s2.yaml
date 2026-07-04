@@ -1,0 +1,49 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+name: S2
+driverClass: io.openmessaging.benchmark.driver.s2.S2BenchmarkDriver
+
+# Basin endpoint. `{basin}` is substituted with the basin name (subdomain
+# addressing). An endpoint without the placeholder (e.g. a local S2 instance)
+# conveys the basin via the s2-basin header instead, and plain http endpoints
+# use HTTP/2 cleartext.
+basinEndpoint: https://{basin}.b.aws.s2.dev
+
+# Basin to create benchmark streams in. It must already exist.
+basin: omb
+
+# Access token is read from this environment variable unless `token` is set.
+tokenEnv: S2_ACCESS_TOKEN
+# token: ...
+
+# Storage class for created streams: standard or express.
+storageClass: express
+
+# Retention for created streams. Streams are deleted when the benchmark shuts
+# down cleanly; retention is the backstop for interrupted runs.
+retentionAgeSecs: 3600
+
+# Producer batching, mirroring Kafka linger.ms / batch.size semantics.
+lingerMs: 1
+maxBatchRecords: 1000
+maxBatchMeteredBytes: 1048576
+maxInflightBytesPerStream: 5242880
+
+# HTTP/2 connection pools per worker. Append and read traffic never share a
+# connection so that paused consumers cannot stall producer acks.
+http2AppendConnections: 2
+http2ReadConnections: 2
+
+deleteStreamsOnClose: true
